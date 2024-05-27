@@ -1,0 +1,66 @@
+; Implements the TI HDQ protocol used by battery "gas gauge" ICs
+; Acts as a slave device, responding to commands from a master
+
+; .program hdq_slave
+; .wrap_target
+; read_byte:
+; ; read 8 bits of input
+; set pindirs, 0
+; set x, 8
+; read_bit:
+; wait 0 pin 1 [7] side 0
+; ; send the pin value to the IN FIFO
+; in pins, 1 [9]
+; ; rasie IRQ if still low 
+; jmp pin notbreak
+; ; push with zeros
+; push
+; wait 1 pin 1
+; jmp read_byte
+; notbreak:
+; jmp x-- read_bit side 0
+; ; Final byte signalling it worked
+; set y, 1
+; in y, 1
+; push
+; ; TODO: write from OUT FIFO
+; .wrap
+
+.program hdq_slave
+.side_set 1
+.wrap_target
+read_byte:
+set pindirs, 0 side 1
+set x, 7 side 1
+set y, 1 side 1
+in y, 1 side 1 ; shift in a 1 byte into ISR
+read_bit:
+wait 0 pin 0 [7] side 1
+in pins, 1 [10] side 0
+jmp pin notbreak side 0
+; break:
+push side 0
+wait 1 pin 0 side 0
+jmp read_byte side 0
+notbreak:
+jmp x-- read_bit side 1
+push side 1; TODO: autopush at 9 bits
+
+;break:
+;wait irq 1 side 0
+; read_byte:
+; set pindirs, 0 side 0; Set all pins to input
+; set x, 7 side 0; Read 8 bits
+; read_bit:
+; wait 0 pin 0 [7] side 1 ; wait for pin to go low, wait 7 cycles
+; in pins, 1 [9] side 0; read the pin value into the IN register
+; ;push
+; jmp x-- read_bit side 0 ; repeat 7 times
+; push side 0
+; Final byte signalling it worked
+;set y, 3
+;in y, 1
+;push
+
+
+.wrap
