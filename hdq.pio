@@ -11,26 +11,50 @@
 
 .program hdq_slave
 ; side set is just for debugging
-.side_set 1
+.side_set 1 opt
 .wrap_target
 
 read_byte:
-    set pindirs, 0 side 1
-    set x, 7 side 1
+    set pindirs, 0 side 0
+    set x, 7
 
-    set y, 1 side 1
-    in y, 1 side 1 ; shift valid bit in
+    set y, 1
+    in y, 1 ; shift valid bit in
 
 read_bit:
-    wait 0 pin 0 [7] side 1
-    in pins, 1 [10] side 0
-    jmp pin notbreak side 0
+    wait 0 pin 0 [7]
+    in pins, 1 [7]
+    nop [2] ; because above cannot be 10
+    jmp pin notbreak 
     ; break condition
     push side 0 ; push the incomplete byte so the valid bit is NOT set
-    wait 1 pin 0 side 0
-    jmp read_byte side 0
+    wait 1 pin 0
+    jmp read_byte
 notbreak:
-    jmp x-- read_bit side 1
+    jmp x-- read_bit
+
+    ;pull
+
+; fall through from reading to try writing
+write_byte:
+    pull
+    out x, 1 side 1
+    jmp !x read_byte ; if x is 0, the rest is garbage
+    set x, 7 ; write 8 bits
+    set pindirs, 1
+
+write_bit:
+    nop ; drive high for 200 us, to satisfy minimum time between falling edges cheaply
+    nop [7] ; because above cannot be 24
+    nop [7]
+    nop [7]
+    out y, 1 ; shift next bit into y
+    set pins 0 [4] ; drive low for minimum of 25 us
+    jmp y-- one_skip ; 1 skips extra nops, 0 falls through
+    nop [7] ; 7 + 1 + 5 * 8 = 104 us
+one_skip:
+    set pins 1
+    jmp x-- write_bit
 
 .wrap
 
@@ -61,6 +85,7 @@ void hdq_slave_program_init(PIO pio, uint sm, uint offset, uint pin) {
     );
 
     //; Sideset pin for debugging
+    pio_gpio_init(pio, 13);
     pio_sm_set_consecutive_pindirs(pio, sm, 13, 1, true);
     sm_config_set_sideset_pins (&c, 13);
 

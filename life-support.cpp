@@ -28,6 +28,15 @@ void hdq_slave_init(PIO pio, uint sm, uint offset, uint pin) {
     printf("HDQ Slave enabled\n");
 }
 
+void hdq_slave_put_byte(PIO pio, uint sm, bool valid, uint8_t data) {
+    uint32_t hdq_w = (data << 1) | valid; // valid bit is least significant
+    // if (valid) {
+    //     //hdq_w = 0xFFFFFFFF;
+    //     //hdq_w = 0x00000001;
+    // }
+    pio_sm_put_blocking(pio, sm, hdq_w);
+}
+
 uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
     while (true) {
         uint16_t hdq_r = pio_sm_get_blocking(pio, sm) >> 16;
@@ -35,8 +44,6 @@ uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
         if (hdq_r & 0x80) { // Valid
             hdq_r = (hdq_r & 0xFF00) >> 8;
             return hdq_r;
-        } else {
-            //printf("HDQ BREAK\n");
         }
     }
 }
@@ -47,11 +54,16 @@ void hdq_slave_handle(PIO pio, uint sm) {
         uint8_t addr = cmd & 0x7F;
         if (cmd & 0x80) {
             // Write
+            hdq_slave_put_byte(pio, sm, false, 0x0);
             uint8_t data = hdq_slave_get_byte(pio, sm);
             printf("HDQ write: 0x%02x -> 0x%002x\n", addr, data);
+            hdq_slave_put_byte(pio, sm, false, 0x0);
         } else {
             printf("HDQ read:  0x%02x\n", addr);
+            hdq_slave_put_byte(pio, sm, true, 0xDE);
         }
+        // Print the FIFO size
+        printf("FIFO: %d\n", pio_sm_get_tx_fifo_level(pio, sm));
     }
 }
 
