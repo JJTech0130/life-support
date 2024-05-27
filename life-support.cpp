@@ -21,37 +21,38 @@ void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq) {
 }
 
 
-void hdq_program_init(PIO pio, uint sm, uint offset, uint pin) {
-    pio_gpio_init(pio, pin);
-    pio_gpio_init(pio, 13);
-    //pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
-    pio_sm_config c = hdq_slave_program_get_default_config(offset);
-   // pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+void hdq_slave_init(PIO pio, uint sm, uint offset, uint pin) {
+    gpio_pull_up(pin);
+    hdq_slave_program_init(pio, sm, offset, pin);
+    pio_sm_set_enabled(pio, sm, true);
+    printf("HDQ Slave enabled\n");
+}
 
-    sm_config_set_set_pins(&c, pin, 1);
-    float div = clock_get_hz (clk_sys) * (1e-6 * 8); // 1/8 MHz
-    sm_config_set_clkdiv (&c, div);
-    sm_config_set_in_shift (
-        &c,
-        true,           // shift direction: right
-        false,           // autopush: enabled
-        9   // autopush threshold
-    );
+uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
+    while (true) {
+        uint16_t hdq_r = pio_sm_get_blocking(pio, sm) >> 16;
+        // Check bit 9 to see if it was a BREAK
+        if (hdq_r & 0x80) { // Valid
+            hdq_r = (hdq_r & 0xFF00) >> 8;
+            return hdq_r;
+        } else {
+            //printf("HDQ BREAK\n");
+        }
+    }
+}
 
-    // Output Shift Register configuration settings
-    sm_config_set_out_shift (
-        &c,
-        true,           // shift direction: right
-        false,           // autopull: enabled
-        9   // autopull threshold
-    );
-
-    // configure the input and sideset pin groups to start at `pin_num`
-    sm_config_set_in_pins (&c, pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, 13, 1, true);
-    sm_config_set_sideset_pins (&c, 13);
-    sm_config_set_jmp_pin (&c, pin);
-    pio_sm_init(pio, sm, offset, &c);
+void hdq_slave_handle(PIO pio, uint sm) {
+    while (true) {
+        uint8_t cmd = hdq_slave_get_byte(pio, sm);
+        uint8_t addr = cmd & 0x7F;
+        if (cmd & 0x80) {
+            // Write
+            uint8_t data = hdq_slave_get_byte(pio, sm);
+            printf("HDQ write: 0x%02x -> 0x%002x\n", addr, data);
+        } else {
+            printf("HDQ read:  0x%02x\n", addr);
+        }
+    }
 }
 
 int main() {
@@ -63,44 +64,13 @@ int main() {
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &hdq_slave_program);
     printf("Loaded program at %d\n", offset);
-    // Make the HDQ pin pull-up when idle
-    gpio_pull_up(HDQ_PIN);
     
-    hdq_program_init(pio, 0, offset, HDQ_PIN);
-    pio_sm_set_enabled(pio, 0, true);
+    hdq_slave_init(pio, 0, offset, HDQ_PIN);
+    //pio_sm_set_enabled(pio, 0, true);
     printf("HDQ Slave enabled\n");
 
-    for (int i = 0; i < 3; i++) {
-        //printf("Hello, world!\n");
-        // Read from the HDQ FIFO
-       // (uint8_t)(pio_sm_get_blocking (pio, 0) >> 24);  // shift response into bits 0..7
-        uint32_t hdq_debug2 = pio_sm_get_blocking (pio, 0);
-        printf("HDQ sent: 0x%32x\n", hdq_debug2);
-        uint16_t hdq_debug = hdq_debug2 >> 16;
-        //printf("HDQ sent: 0x%32x\n", hdq_debug);
-        // Check bit 9 to see if it was a BREAK
-        if (hdq_debug & 0x80) { // Valid
-            hdq_debug = (hdq_debug & 0xFF00) >> 8;
-            // Check read/write bit
-            if (hdq_debug & 0x80) {
-                hdq_debug = hdq_debug & 0x7F;
-                printf("HDQ write: 0x%32x\n", hdq_debug);
-            } else {
-                hdq_debug = hdq_debug & 0x7F;
-                printf("HDQ read: 0x%32x\n", hdq_debug);
-            }
-        } else {
-            printf("HDQ BREAK\n");
-        }
-
-        // if (hdq_debug >= 0xfff00000) {
-        //     printf("HDQ RESET\n");
-        // } else {
-        //     printf("HDQ sent: 0x%32x\n", hdq_debug);
-        // }
-        //printf("HDQ sent: %d\n", (uint8_t)(pio_sm_get_blocking (pio, 0) >> 24));
-        //sleep_ms(10);
-    }
+    hdq_slave_handle(pio, 0);
+   
     // Stop pio
     pio_sm_set_enabled(pio, 0, false);
 }
