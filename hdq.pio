@@ -22,7 +22,9 @@ read_byte:
     in y, 1 ; shift valid bit in
 
 read_bit:
-    wait 0 pin 0 [7]
+    wait 0 pin 0 [1]
+    jmp pin read_bit ; stray edge, ignore it
+    nop [5]
     in pins, 1 [7]
     nop [2] ; because above cannot be 10
     jmp pin notbreak 

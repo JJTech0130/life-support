@@ -35,6 +35,12 @@ void hdq_slave_put_byte(PIO pio, uint sm, bool valid, uint8_t data) {
     //     //hdq_w = 0x00000001;
     // }
     pio_sm_put_blocking(pio, sm, hdq_w);
+    // Wait for the FIFO to empty
+    //printf("Waiting for FIFO to empty\n");
+    while (!pio_sm_is_tx_fifo_empty(pio, sm)) {
+        tight_loop_contents();
+    }
+    //printf("FIFO empty\n");
 }
 
 uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
@@ -44,6 +50,9 @@ uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
         if (hdq_r & 0x80) { // Valid
             hdq_r = (hdq_r & 0xFF00) >> 8;
             return hdq_r;
+        } else {
+            // Clear TX FIFO
+            pio_sm_clear_fifos(pio, sm);
         }
     }
 }
@@ -60,7 +69,7 @@ void hdq_slave_handle(PIO pio, uint sm) {
             hdq_slave_put_byte(pio, sm, false, 0x0);
         } else {
             printf("HDQ read:  0x%02x\n", addr);
-            hdq_slave_put_byte(pio, sm, true, 0xDE);
+            hdq_slave_put_byte(pio, sm, true, addr); // echo the addr
         }
         // Print the FIFO size
         printf("FIFO: %d\n", pio_sm_get_tx_fifo_level(pio, sm));
