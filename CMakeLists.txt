@@ -45,7 +45,6 @@ pico_set_program_name(life-support "life-support")
 pico_set_program_version(life-support "0.1")
 
 # Generate PIO header
-pico_generate_pio_header(life-support ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
 pico_generate_pio_header(life-support ${CMAKE_CURRENT_LIST_DIR}/hdq.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
