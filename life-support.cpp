@@ -1,60 +1,10 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/pio.h"
-
-#include "hdq.pio.h"
-#include "hardware/clocks.h"
+#include "hdq.h"
+#include <malloc.h>
 
 #define HDQ_PIN 14
 #define DFU_PIN 15
-
-void hdq_slave_init(PIO pio, uint sm, uint offset, uint pin) {
-    gpio_pull_up(pin);
-    hdq_slave_program_init(pio, sm, offset, pin);
-    pio_sm_set_enabled(pio, sm, true);
-    printf("HDQ Slave enabled\n");
-}
-
-void hdq_slave_put_byte(PIO pio, uint sm, bool valid, uint8_t data) {
-    uint32_t hdq_w = (data << 1) | valid; // valid bit is least significant
-    pio_sm_put_blocking(pio, sm, hdq_w);
-
-    // Wait for the FIFO to empty
-    while (!pio_sm_is_tx_fifo_empty(pio, sm)) {
-        tight_loop_contents();
-    }
-}
-
-uint8_t hdq_slave_get_byte(PIO pio, uint sm) {
-    while (true) {
-        uint16_t hdq_r = pio_sm_get_blocking(pio, sm) >> 16;
-        // Check bit 9 to see if it was a BREAK
-        if (hdq_r & 0x80) { // Valid
-            hdq_r = (hdq_r & 0xFF00) >> 8;
-            return hdq_r;
-        } else {
-            // Clear TX FIFO
-            pio_sm_clear_fifos(pio, sm);
-        }
-    }
-}
-
-void hdq_slave_handle(PIO pio, uint sm) {
-    while (true) {
-        uint8_t cmd = hdq_slave_get_byte(pio, sm);
-        uint8_t addr = cmd & 0x7F;
-        if (cmd & 0x80) {
-            // Write
-            hdq_slave_put_byte(pio, sm, false, 0x0);
-            uint8_t data = hdq_slave_get_byte(pio, sm);
-            printf("HDQ write: 0x%02x -> 0x%002x\n", addr, data);
-            hdq_slave_put_byte(pio, sm, false, 0x0);
-        } else {
-            printf("HDQ read:  0x%02x\n", addr);
-            hdq_slave_put_byte(pio, sm, true, addr); // echo the addr
-        }
-    }
-}
 
 int main() {
     stdio_init_all();
@@ -65,5 +15,24 @@ int main() {
     printf("Loaded program at %d\n", offset);
     
     hdq_slave_init(pio, 0, offset, HDQ_PIN);
-    hdq_slave_handle(pio, 0);
+    uint16_t *register_mem = (uint16_t *)malloc(256);
+    uint16_t *control_mem = (uint16_t *)malloc(0x90);
+    // Write zeros to memory
+    for (int i = 0; i < 256; i++) {
+        register_mem[i] = 0;
+    }
+    for (int i = 0; i < 0x90; i++) {
+        control_mem[i] = 0;
+    }
+
+    control_mem[2] = 0x0106; // Version    
+    register_mem[0x6/2] = register_mem[0x28/2] = 3017; // Temp: 301.8K = 82.13F
+    register_mem[0x0A/2] = 0x2080; // Flags
+    register_mem[0x32/2] = 306; // Charging current mA
+    register_mem[0x12/2] = 1629; // Full capacity mAh
+    register_mem[0x10/2] = register_mem[0x20/2] = register_mem[0x22/2] = 1629; // Remaining capacity mAh
+    register_mem[0x14/2] = 0; // Average current mA
+    register_mem[0x2C/2] = 100; // State of charge
+
+    hdq_slave_handle(pio, 0, register_mem, control_mem);
 }
